@@ -1,0 +1,1140 @@
+     1→/**
+     2→ * Stock Analysis App - Complete single-page application
+     3→ * Features: Dashboard, Rankings, Stock Detail, AI Analysis
+     4→ */
+     5→'use client';
+     6→
+     7→import React, { useState, useEffect, useCallback } from 'react';
+     8→import {
+     9→  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
+    10→  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+    11→  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+    12→  Area, AreaChart,
+    13→} from 'recharts';
+    14→import { motion, AnimatePresence } from 'framer-motion';
+    15→import {
+    16→  TrendingUp, TrendingDown, BarChart3, Brain, RefreshCw, Search,
+    17→  ArrowUpRight, ArrowDownRight, Star, AlertTriangle, Shield,
+    18→  Award, ChevronRight, Activity, PieChart as PieChartIcon, Users,
+    19→  Globe, Clock, CheckCircle2, XCircle, Loader2, ExternalLink,
+    20→  LayoutDashboard, Trophy, Eye, Sparkles, Heart, Zap, Target,
+    21→  ChevronDown, Filter, SortAsc
+    22→} from 'lucide-react';
+    23→
+    24→import { api, Stock, StockDetail, StockRanking, DashboardData, StockAnalysis } from '@/lib/api';
+    25→
+    26→// ============================================================
+    27→// Helper: safely parse JSON-encoded arrays from the database
+    28→// ============================================================
+    29→function safeArray(val: unknown): string[] {
+    30→  if (Array.isArray(val)) return val;
+    31→  if (typeof val === 'string') {
+    32→    try {
+    33→      const parsed = JSON.parse(val);
+    34→      return Array.isArray(parsed) ? parsed : [];
+    35→    } catch {
+    36→      return [];
+    37→    }
+    38→  }
+    39→  return [];
+    40→}
+    41→
+    42→// ============================================================
+    43→// Color palette & constants
+    44→// ============================================================
+    45→const COLORS = {
+    46→  primary: '#10b981',     // emerald-500
+    47→  secondary: '#6366f1',   // indigo-500
+    48→  accent: '#f59e0b',      // amber-500
+    49→  danger: '#ef4444',      // red-500
+    50→  success: '#22c55e',     // green-500
+    51→  info: '#3b82f6',        // blue-500
+    52→  muted: '#6b7280',       // gray-500
+    53→  bg: '#0f172a',          // slate-900
+    54→  card: '#1e293b',        // slate-800
+    55→  cardLight: '#334155',   // slate-700
+    56→  text: '#f8fafc',        // slate-50
+    57→  textMuted: '#94a3b8',   // slate-400
+    58→};
+    59→
+    60→const CHART_COLORS = ['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899', '#8b5cf6', '#14b8a6'];
+    61→
+    62→const GRADE_COLORS: Record<string, string> = {
+    63→  'A+': '#22c55e', 'A': '#22c55e', 'A-': '#10b981',
+    64→  'B+': '#3b82f6', 'B': '#3b82f6', 'B-': '#6366f1',
+    65→  'C+': '#f59e0b', 'C': '#f59e0b', 'C-': '#d97706',
+    66→  'D': '#ef4444',
+    67→};
+    68→
+    69→const RECOMMENDATION_LABELS: Record<string, { label: string; color: string }> = {
+    70→  strong_buy: { label: 'Compra Forte', color: '#22c55e' },
+    71→  buy: { label: 'Compra', color: '#10b981' },
+    72→  hold: { label: 'Manter', color: '#f59e0b' },
+    73→  sell: { label: 'Vender', color: '#ef4444' },
+    74→  strong_sell: { label: 'Venda Forte', color: '#dc2626' },
+    75→};
+    76→
+    77→const RISK_LABELS: Record<string, { label: string; color: string }> = {
+    78→  low: { label: 'Baixo', color: '#22c55e' },
+    79→  medium: { label: 'Médio', color: '#f59e0b' },
+    80→  high: { label: 'Alto', color: '#ef4444' },
+    81→  very_high: { label: 'Muito Alto', color: '#dc2626' },
+    82→};
+    83→
+    84→// ============================================================
+    85→// Helper functions
+    86→// ============================================================
+    87→function formatNumber(n: number | null | undefined, decimals = 2): string {
+    88→  if (n === null || n === undefined) return 'N/A';
+    89→  if (Math.abs(n) >= 1e12) return `${(n / 1e12).toFixed(1)}T`;
+    90→  if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+    91→  if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+    92→  if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+    93→  return n.toFixed(decimals);
+    94→}
+    95→
+    96→function formatPercent(n: number | null | undefined): string {
+    97→  if (n === null || n === undefined) return 'N/A';
+    98→  return `${(n * 100).toFixed(1)}%`;
+    99→}
+   100→
+   101→function formatPrice(n: number | null | undefined, currency = 'R$'): string {
+   102→  if (n === null || n === undefined) return 'N/A';
+   103→  return `${currency} ${n.toFixed(2)}`;
+   104→}
+   105→
+   106→function formatDate(d: string | null | undefined): string {
+   107→  if (!d) return 'N/A';
+   108→  return new Date(d).toLocaleDateString('pt-BR');
+   109→}
+   110→
+   111→function getScoreColor(score: number): string {
+   112→  if (score >= 70) return COLORS.success;
+   113→  if (score >= 50) return COLORS.accent;
+   114→  if (score >= 30) return '#f97316';
+   115→  return COLORS.danger;
+   116→}
+   117→
+   118→/**
+   119→ * Safely parse a value that might be a JSON string or an array.
+   120→ * The API sometimes returns array fields as JSON-encoded strings.
+   121→ */
+   122→function safeArray(val: unknown): string[] {
+   123→  if (Array.isArray(val)) return val;
+   124→  if (typeof val === 'string') {
+   125→    try {
+   126→      const parsed = JSON.parse(val);
+   127→      return Array.isArray(parsed) ? parsed : [val];
+   128→    } catch {
+   129→      return [val];
+   130→    }
+   131→  }
+   132→  return [];
+   133→}
+   134→
+   135→// ============================================================
+   136→// Loading Spinner
+   137→// ============================================================
+   138→function LoadingSpinner({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
+   139→  const s = size === 'sm' ? 'w-4 h-4' : size === 'lg' ? 'w-8 h-8' : 'w-6 h-6';
+   140→  return <Loader2 className={`${s} animate-spin text-emerald-400`} />;
+   141→}
+   142→
+   143→// ============================================================
+   144→// Score Badge
+   145→// ============================================================
+   146→function ScoreBadge({ score, grade, size = 'md' }: { score: number; grade?: string; size?: 'sm' | 'md' | 'lg' }) {
+   147→  const color = getScoreColor(score);
+   148→  const sizes = {
+   149→    sm: 'w-10 h-10 text-xs',
+   150→    md: 'w-14 h-14 text-sm',
+   151→    lg: 'w-20 h-20 text-lg',
+   152→  };
+   153→
+   154→  return (
+   155→    <div className="flex flex-col items-center gap-1">
+   156→      <div
+   157→        className={`${sizes[size]} rounded-full flex items-center justify-center font-bold text-white`}
+   158→        style={{ backgroundColor: color }}
+   159→      >
+   160→        {score.toFixed(0)}
+   161→      </div>
+   162→      {grade && (
+   163→        <span className="text-xs font-semibold" style={{ color: GRADE_COLORS[grade] || COLORS.muted }}>
+   164→          {grade}
+   165→        </span>
+   166→      )}
+   167→    </div>
+   168→  );
+   169→}
+   170→
+   171→// ============================================================
+   172→// Main App Component
+   173→// ============================================================
+   174→export default function StockAnalysisApp() {
+   175→  const [activeTab, setActiveTab] = useState<'dashboard' | 'rankings' | 'stock'>('dashboard');
+   176→  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+   177→  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+   178→  const [stocks, setStocks] = useState<Stock[]>([]);
+   179→  const [rankings, setRankings] = useState<any[]>([]);
+   180→  const [stockDetail, setStockDetail] = useState<StockDetail | null>(null);
+   181→  const [loading, setLoading] = useState<Record<string, boolean>>({});
+   182→  const [searchQuery, setSearchQuery] = useState('');
+   183→  const [marketFilter, setMarketFilter] = useState<string>('');
+   184→  const [sortBy, setSortBy] = useState('overallScore');
+   185→
+   186→  // Load dashboard data
+   187→  const loadDashboard = useCallback(async () => {
+   188→    setLoading(prev => ({ ...prev, dashboard: true }));
+   189→    try {
+   190→      const data = await api.getDashboard();
+   191→      setDashboard(data);
+   192→    } catch (e) {
+   193→      console.error('Failed to load dashboard:', e);
+   194→    }
+   195→    setLoading(prev => ({ ...prev, dashboard: false }));
+   196→  }, []);
+   197→
+   198→  // Load stocks
+   199→  const loadStocks = useCallback(async () => {
+   200→    setLoading(prev => ({ ...prev, stocks: true }));
+   201→    try {
+   202→      const data = await api.getStocks(marketFilter || undefined);
+   203→      setStocks(data.stocks);
+   204→    } catch (e) {
+   205→      console.error('Failed to load stocks:', e);
+   206→    }
+   207→    setLoading(prev => ({ ...prev, stocks: false }));
+   208→  }, [marketFilter]);
+   209→
+   210→  // Load rankings
+   211→  const loadRankings = useCallback(async () => {
+   212→    setLoading(prev => ({ ...prev, rankings: true }));
+   213→    try {
+   214→      const data = await api.getRankings(sortBy, 50);
+   215→      setRankings(data.rankings);
+   216→    } catch (e) {
+   217→      console.error('Failed to load rankings:', e);
+   218→    }
+   219→    setLoading(prev => ({ ...prev, rankings: false }));
+   220→  }, [sortBy]);
+   221→
+   222→  // Load stock detail
+   223→  const loadStockDetail = useCallback(async (symbol: string) => {
+   224→    setLoading(prev => ({ ...prev, stock: true }));
+   225→    try {
+   226→      const data = await api.getStockDetail(symbol);
+   227→      setStockDetail(data);
+   228→      setSelectedSymbol(symbol);
+   229→      setActiveTab('stock');
+   230→    } catch (e) {
+   231→      console.error('Failed to load stock detail:', e);
+   232→    }
+   233→    setLoading(prev => ({ ...prev, stock: false }));
+   234→  }, []);
+   235→
+   236→  // Initial load using a ref to avoid cascading renders
+   237→  const initialLoadRef = React.useRef(false);
+   238→  useEffect(() => {
+   239→    if (!initialLoadRef.current) {
+   240→      initialLoadRef.current = true;
+   241→      const loadAll = async () => {
+   242→        await Promise.all([loadDashboard(), loadStocks(), loadRankings()]);
+   243→      };
+   244→      loadAll();
+   245→    }
+   246→  }, []);
+   247→
+   248→  // Filter stocks by search
+   249→  const filteredStocks = stocks.filter(s =>
+   250→    !searchQuery ||
+   251→    s.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+   252→    s.name.toLowerCase().includes(searchQuery.toLowerCase())
+   253→  );
+   254→
+   255→  // Tab navigation
+   256→  const tabs = [
+   257→    { key: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
+   258→    { key: 'rankings' as const, label: 'Rankings', icon: Trophy },
+   259→    { key: 'stock' as const, label: 'Análise', icon: Eye },
+   260→  ];
+   261→
+   262→  return (
+   263→    <div className="min-h-screen bg-[#0a0e1a] text-white">
+   264→      {/* Header */}
+   265→      <header className="sticky top-0 z-50 border-b border-slate-700/50 bg-[#0a0e1a]/95 backdrop-blur-md">
+   266→        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+   267→          <div className="flex items-center gap-3">
+   268→            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+   269→              <BarChart3 className="w-6 h-6 text-white" />
+   270→            </div>
+   271→            <div>
+   272→              <h1 className="text-lg font-bold text-white">StockAI</h1>
+   273→              <p className="text-[10px] text-slate-400">Análise Automática de Ações</p>
+   274→            </div>
+   275→          </div>
+   276→
+   277→          {/* Tab Navigation */}
+   278→          <nav className="flex gap-1 bg-slate-800/50 rounded-xl p-1">
+   279→            {tabs.map(tab => (
+   280→              <button
+   281→                key={tab.key}
+   282→                onClick={() => {
+   283→                  if (tab.key === 'stock' && !selectedSymbol) return;
+   284→                  setActiveTab(tab.key);
+   285→                }}
+   286→                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+   287→                  activeTab === tab.key
+   288→                    ? 'bg-emerald-500/20 text-emerald-400'
+   289→                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+   290→                } ${tab.key === 'stock' && !selectedSymbol ? 'opacity-50 cursor-not-allowed' : ''}`}
+   291→              >
+   292→                <tab.icon className="w-4 h-4" />
+   293→                <span className="hidden sm:inline">{tab.label}</span>
+   294→              </button>
+   295→            ))}
+   296→          </nav>
+   297→
+   298→          {/* Search */}
+   299→          <div className="relative">
+   300→            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+   301→            <input
+   302→              type="text"
+   303→              placeholder="Buscar ação..."
+   304→              value={searchQuery}
+   305→              onChange={e => setSearchQuery(e.target.value)}
+   306→              className="w-48 pl-10 pr-4 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50"
+   307→            />
+   308→          </div>
+   309→        </div>
+   310→      </header>
+   311→
+   312→      {/* Main Content */}
+   313→      <main className="max-w-7xl mx-auto px-4 py-6">
+   314→        <AnimatePresence mode="wait">
+   315→          {activeTab === 'dashboard' && (
+   316→            <motion.div key="dashboard" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+   317→              <DashboardView
+   318→                dashboard={dashboard}
+   319→                stocks={filteredStocks}
+   320→                loading={loading.dashboard}
+   321→                onRefresh={loadDashboard}
+   322→                onSelectStock={loadStockDetail}
+   323→              />
+   324→            </motion.div>
+   325→          )}
+   326→
+   327→          {activeTab === 'rankings' && (
+   328→            <motion.div key="rankings" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+   329→              <RankingsView
+   330→                rankings={rankings}
+   331→                loading={loading.rankings}
+   332→                sortBy={sortBy}
+   333→                onSortChange={setSortBy}
+   334→                onRefresh={loadRankings}
+   335→                onSelectStock={loadStockDetail}
+   336→              />
+   337→            </motion.div>
+   338→          )}
+   339→
+   340→          {activeTab === 'stock' && selectedSymbol && (
+   341→            <motion.div key="stock" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+   342→              <StockDetailView
+   343→                detail={stockDetail}
+   344→                loading={loading.stock}
+   345→                symbol={selectedSymbol}
+   346→                onRefresh={() => loadStockDetail(selectedSymbol)}
+   347→                onAnalyze={async () => {
+   348→                  setLoading(prev => ({ ...prev, analyze: true }));
+   349→                  try {
+   350→                    await api.analyzeStock(selectedSymbol);
+   351→                    await loadStockDetail(selectedSymbol);
+   352→                  } catch (e) {
+   353→                    console.error('Analysis failed:', e);
+   354→                  }
+   355→                  setLoading(prev => ({ ...prev, analyze: false }));
+   356→                }}
+   357→                analyzing={loading.analyze || false}
+   358→              />
+   359→            </motion.div>
+   360→          )}
+   361→        </AnimatePresence>
+   362→      </main>
+   363→    </div>
+   364→  );
+   365→}
+   366→
+   367→// ============================================================
+   368→// Dashboard View
+   369→// ============================================================
+   370→function DashboardView({
+   371→  dashboard,
+   372→  stocks,
+   373→  loading,
+   374→  onRefresh,
+   375→  onSelectStock,
+   376→}: {
+   377→  dashboard: DashboardData | null;
+   378→  stocks: Stock[];
+   379→  loading: boolean;
+   380→  onRefresh: () => void;
+   381→  onSelectStock: (symbol: string) => void;
+   382→}) {
+   383→  // Prepare sector chart data
+   384→  const sectorData = (dashboard?.sectorStats || []).map(s => ({
+   385→    name: s.sector?.length > 18 ? s.sector.substring(0, 18) + '...' : s.sector,
+   386→    count: s.count,
+   387→    score: s.avg_score || 0,
+   388→  }));
+   389→
+   390→  // Prepare market distribution for pie chart
+   391→  const marketData = (dashboard?.marketStats || []).map(s => ({
+   392→    name: s.market,
+   393→    value: s.count,
+   394→  }));
+   395→
+   396→  return (
+   397→    <div className="space-y-6">
+   398→      {/* Top Stats Row */}
+   399→      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+   400→        <StatCard
+   401→          icon={<BarChart3 className="w-5 h-5" />}
+   402→          label="Ações Monitoradas"
+   403→          value={dashboard?.totalStocks || 0}
+   404→          color="#10b981"
+   405→        />
+   406→        <StatCard
+   407→          icon={<Brain className="w-5 h-5" />}
+   408→          label="Análises Geradas"
+   409→          value={dashboard?.totalAnalyses || 0}
+   410→          color="#6366f1"
+   411→        />
+   412→        <StatCard
+   413→          icon={<Clock className="w-5 h-5" />}
+   414→          label="Última Atualização"
+   415→          value={dashboard?.lastUpdate ? formatDate(dashboard.lastUpdate) : 'Pendente'}
+   416→          color="#f59e0b"
+   417→          isText
+   418→        />
+   419→        <StatCard
+   420→          icon={<Activity className="w-5 h-5" />}
+   421→          label="Mercados"
+   422→          value={dashboard?.marketStats?.length || 0}
+   423→          color="#ec4899"
+   424→        />
+   425→      </div>
+   426→
+   427→      {/* Charts Row */}
+   428→      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+   429→        {/* Sector Distribution */}
+   430→        <div className="bg-[#111827] border border-slate-700/50 rounded-2xl p-5">
+   431→          <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+   432→            <PieChartIcon className="w-4 h-4 text-emerald-400" />
+   433→            Distribuição por Setor
+   434→          </h3>
+   435→          <ResponsiveContainer width="100%" height={280}>
+   436→            <BarChart data={sectorData} layout="vertical">
+   437→              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+   438→              <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+   439→              <YAxis dataKey="name" type="category" width={120} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+   440→              <Tooltip
+   441→                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+   442→                labelStyle={{ color: '#f8fafc' }}
+   443→              />
+   444→              <Bar dataKey="count" fill="#10b981" radius={[0, 4, 4, 0]} name="Empresas" />
+   445→            </BarChart>
+   446→          </ResponsiveContainer>
+   447→        </div>
+   448→
+   449→        {/* Market Distribution */}
+   450→        <div className="bg-[#111827] border border-slate-700/50 rounded-2xl p-5">
+   451→          <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+   452→            <Globe className="w-4 h-4 text-indigo-400" />
+   453→            Distribuição por Mercado
+   454→          </h3>
+   455→          <ResponsiveContainer width="100%" height={280}>
+   456→            <PieChart>
+   457→              <Pie
+   458→                data={marketData}
+   459→                cx="50%"
+   460→                cy="50%"
+   461→                innerRadius={60}
+   462→                outerRadius={100}
+   463→                paddingAngle={5}
+   464→                dataKey="value"
+   465→                label={({ name, value }) => `${name}: ${value}`}
+   466→              >
+   467→                {marketData.map((_, i) => (
+   468→                  <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+   469→                ))}
+   470→              </Pie>
+   471→              <Tooltip
+   472→                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+   473→              />
+   474→            </PieChart>
+   475→          </ResponsiveContainer>
+   476→        </div>
+   477→      </div>
+   478→
+   479→      {/* Top Ranked & Stock List */}
+   480→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+   481→        {/* Top Ranked */}
+   482→        <div className="lg:col-span-1 bg-[#111827] border border-slate-700/50 rounded-2xl p-5">
+   483→          <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+   484→            <Trophy className="w-4 h-4 text-amber-400" />
+   485→            Top Ranked
+   486→          </h3>
+   487→          <div className="space-y-3">
+   488→            {(dashboard?.topRanked || []).map((stock, i) => (
+   489→              <button
+   490→                key={stock.id}
+   491→                onClick={() => onSelectStock(stock.symbol)}
+   492→                className="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 hover:bg-slate-700/50 transition-all group"
+   493→              >
+   494→                <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm"
+   495→                  style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] + '30', color: CHART_COLORS[i % CHART_COLORS.length] }}>
+   496→                  {i + 1}
+   497→                </div>
+   498→                <div className="flex-1 text-left">
+   499→                  <p className="text-sm font-medium text-white">{stock.symbol?.replace('.SA', '')}</p>
+   500→                  <p className="text-xs text-slate-400">{stock.name?.substring(0, 20)}</p>
+   501→                </div>
+   502→                <div className="text-right">
+   503→                  <p className="text-sm font-bold" style={{ color: getScoreColor(stock.overallScore || 0) }}>
+   504→                    {stock.overallScore?.toFixed(0) || 'N/A'}
+   505→                  </p>
+   506→                  <p className="text-xs" style={{ color: GRADE_COLORS[stock.qualityGrade] || COLORS.muted }}>
+   507→                    {stock.qualityGrade || 'N/A'}
+   508→                  </p>
+   509→                </div>
+   510→                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 transition-colors" />
+   511→              </button>
+   512→            ))}
+   513→            {(!dashboard?.topRanked || dashboard.topRanked.length === 0) && (
+   514→              <div className="text-center py-8 text-slate-500 text-sm">
+   515→                Nenhum ranking disponível ainda.
+   516→                <br />Clique em atualizar para sincronizar.
+   517→              </div>
+   518→            )}
+   519→          </div>
+   520→        </div>
+   521→
+   522→        {/* Stock Grid */}
+   523→        <div className="lg:col-span-2 bg-[#111827] border border-slate-700/50 rounded-2xl p-5">
+   524→          <div className="flex items-center justify-between mb-4">
+   525→            <h3 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+   526→              <Activity className="w-4 h-4 text-emerald-400" />
+   527→              Ações Monitoradas
+   528→            </h3>
+   529→            <button
+   530→              onClick={onRefresh}
+   531→              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 text-xs font-medium hover:bg-emerald-500/20 transition-all"
+   532→            >
+   533→              <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+   534→              Atualizar
+   535→            </button>
+   536→          </div>
+   537→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
+   538→            {stocks.map(stock => (
+   539→              <button
+   540→                key={stock.id}
+   541→                onClick={() => onSelectStock(stock.symbol)}
+   542→                className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/30 hover:bg-slate-700/50 border border-slate-700/30 transition-all group text-left"
+   543→              >
+   544→                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex items-center justify-center">
+   545→                  <span className="text-xs font-bold text-emerald-400">
+   546→                    {stock.symbol.substring(0, 2)}
+   547→                  </span>
+   548→                </div>
+   549→                <div className="flex-1 min-w-0">
+   550→                  <p className="text-sm font-medium text-white truncate">{stock.symbol.replace('.SA', '')}</p>
+   551→                  <p className="text-xs text-slate-400 truncate">{stock.name}</p>
+   552→                </div>
+   553→                {stock.latestPrice && (
+   554→                  <div className="text-right">
+   555→                    <p className="text-sm font-mono text-white">{formatPrice(stock.latestPrice.close, stock.market === 'B3' ? 'R$' : '$')}</p>
+   556→                  </div>
+   557→                )}
+   558→                <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-emerald-400 transition-colors flex-shrink-0" />
+   559→              </button>
+   560→            ))}
+   561→          </div>
+   562→        </div>
+   563→      </div>
+   564→
+   565→      {/* Update Controls */}
+   566→      <div className="bg-[#111827] border border-slate-700/50 rounded-2xl p-5">
+   567→        <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+   568→          <Zap className="w-4 h-4 text-amber-400" />
+   569→          Controles de Atualização
+   570→        </h3>
+   571→        <div className="flex flex-wrap gap-3">
+   572→          <UpdateButton label="Sincronizar Tudo" icon={<RefreshCw className="w-4 h-4" />} endpoint="updateAllStocks" />
+   573→          <UpdateButton label="Atualizar Preços" icon={<TrendingUp className="w-4 h-4" />} endpoint="updatePrices" />
+   574→          <UpdateButton label="Recalcular Rankings" icon={<Trophy className="w-4 h-4" />} endpoint="updateRankings" />
+   575→          <UpdateButton label="Gerar Análises" icon={<Brain className="w-4 h-4" />} endpoint="updateAnalysis" />
+   576→        </div>
+   577→      </div>
+   578→    </div>
+   579→  );
+   580→}
+   581→
+   582→// ============================================================
+   583→// Stat Card
+   584→// ============================================================
+   585→function StatCard({ icon, label, value, color, isText }: {
+   586→  icon: React.ReactNode; label: string; value: number | string; color: string; isText?: boolean;
+   587→}) {
+   588→  return (
+   589→    <div className="bg-[#111827] border border-slate-700/50 rounded-2xl p-4 flex items-center gap-4">
+   590→      <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ backgroundColor: color + '20' }}>
+   591→        <span style={{ color }}>{icon}</span>
+   592→      </div>
+   593→      <div>
+   594→        <p className="text-xs text-slate-400">{label}</p>
+   595→        <p className={`font-bold ${isText ? 'text-base' : 'text-2xl'}`} style={{ color }}>
+   596→          {value}
+   597→        </p>
+   598→      </div>
+   599→    </div>
+   600→  );
+   601→}
+   602→
+   603→// ============================================================
+   604→// Update Button
+   605→// ============================================================
+   606→function UpdateButton({ label, icon, endpoint }: { label: string; icon: React.ReactNode; endpoint: string }) {
+   607→  const [loading, setLoading] = useState(false);
+   608→  const [result, setResult] = useState<string | null>(null);
+   609→
+   610→  const handleClick = async () => {
+   611→    setLoading(true);
+   612→    setResult(null);
+   613→    try {
+   614→      const apiMethod = endpoint as keyof typeof api;
+   615→      const res = await (api[apiMethod] as () => Promise<any>)();
+   616→      setResult(`OK: ${res.stocksProcessed} ações processadas`);
+   617→    } catch (e) {
+   618→      setResult('Erro na atualização');
+   619→    }
+   620→    setLoading(false);
+   621→    setTimeout(() => setResult(null), 5000);
+   622→  };
+   623→
+   624→  return (
+   625→    <button
+   626→      onClick={handleClick}
+   627→      disabled={loading}
+   628→      className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800/50 border border-slate-700/50 text-sm font-medium text-slate-300 hover:bg-slate-700/50 hover:text-white transition-all disabled:opacity-50"
+   629→    >
+   630→      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : icon}
+   631→      {label}
+   632→      {result && <span className="text-xs text-emerald-400 ml-2">{result}</span>}
+   633→    </button>
+   634→  );
+   635→}
+   636→
+   637→// ============================================================
+   638→// Rankings View
+   639→// ============================================================
+   640→function RankingsView({
+   641→  rankings,
+   642→  loading,
+   643→  sortBy,
+   644→  onSortChange,
+   645→  onRefresh,
+   646→  onSelectStock,
+   647→}: {
+   648→  rankings: any[];
+   649→  loading: boolean;
+   650→  sortBy: string;
+   651→  onSortChange: (s: string) => void;
+   652→  onRefresh: () => void;
+   653→  onSelectStock: (symbol: string) => void;
+   654→}) {
+   655→  const sortOptions = [
+   656→    { key: 'overallScore', label: 'Geral' },
+   657→    { key: 'valueScore', label: 'Valor' },
+   658→    { key: 'growthScore', label: 'Crescimento' },
+   659→    { key: 'profitabilityScore', label: 'Lucratividade' },
+   660→    { key: 'healthScore', label: 'Saúde' },
+   661→    { key: 'dividendScore', label: 'Dividendos' },
+   662→  ];
+   663→
+   664→  return (
+   665→    <div className="space-y-6">
+   666→      {/* Controls */}
+   667→      <div className="flex flex-wrap items-center justify-between gap-4">
+   668→        <div className="flex items-center gap-2">
+   669→          <Trophy className="w-5 h-5 text-amber-400" />
+   670→          <h2 className="text-xl font-bold text-white">Ranking de Qualidade</h2>
+   671→        </div>
+   672→        <div className="flex items-center gap-3">
+   673→          <div className="flex items-center gap-2 bg-slate-800/50 rounded-xl p-1">
+   674→            {sortOptions.map(opt => (
+   675→              <button
+   676→                key={opt.key}
+   677→                onClick={() => onSortChange(opt.key)}
+   678→                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+   679→                  sortBy === opt.key
+   680→                    ? 'bg-emerald-500/20 text-emerald-400'
+   681→                    : 'text-slate-400 hover:text-white'
+   682→                }`}
+   683→              >
+   684→                {opt.label}
+   685→              </button>
+   686→            ))}
+   687→          </div>
+   688→          <button
+   689→            onClick={onRefresh}
+   690→            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/10 text-emerald-400 text-sm font-medium hover:bg-emerald-500/20 transition-all"
+   691→          >
+   692→            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+   693→            Atualizar
+   694→          </button>
+   695→        </div>
+   696→      </div>
+   697→
+   698→      {/* Rankings Grid */}
+   699→      {loading ? (
+   700→        <div className="flex justify-center py-20"><LoadingSpinner size="lg" /></div>
+   701→      ) : rankings.length === 0 ? (
+   702→        <div className="text-center py-20 text-slate-400">
+   703→          <Trophy className="w-12 h-12 mx-auto mb-4 text-slate-600" />
+   704→          <p>Nenhum ranking disponível. Sincronize os dados primeiro.</p>
+   705→        </div>
+   706→      ) : (
+   707→        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+   708→          {rankings.map((rank, i) => (
+   709→            <motion.button
+   710→              key={rank.id || rank.stockId}
+   711→              initial={{ opacity: 0, y: 20 }}
+   712→              animate={{ opacity: 1, y: 0 }}
+   713→              transition={{ delay: i * 0.05 }}
+   714→              onClick={() => onSelectStock(rank.symbol)}
+   715→              className="bg-[#111827] border border-slate-700/50 rounded-2xl p-5 hover:border-emerald-500/30 transition-all group text-left"
+   716→            >
+   717→              <div className="flex items-start justify-between mb-4">
+   718→                <div>
+   719→                  <div className="flex items-center gap-2 mb-1">
+   720→                    <span className="text-xs px-2 py-0.5 rounded-md bg-slate-700/50 text-slate-300 font-mono">
+   721→                      #{rank.rankPosition || i + 1}
+   722→                    </span>
+   723→                    <span className="text-xs text-slate-400">{rank.market}</span>
+   724→                  </div>
+   725→                  <p className="text-lg font-bold text-white">{rank.symbol?.replace('.SA', '')}</p>
+   726→                  <p className="text-xs text-slate-400">{rank.name}</p>
+   727→                </div>
+   728→                <ScoreBadge score={rank.overallScore} grade={rank.qualityGrade} size="md" />
+   729→              </div>
+   730→
+   731→              {/* Score bars */}
+   732→              <div className="space-y-2">
+   733→                {[
+   734→                  { key: 'valueScore', label: 'Valor' },
+   735→                  { key: 'growthScore', label: 'Crescimento' },
+   736→                  { key: 'profitabilityScore', label: 'Lucratividade' },
+   737→                  { key: 'healthScore', label: 'Saúde' },
+   738→                  { key: 'dividendScore', label: 'Dividendos' },
+   739→                ].map(({ key, label }) => (
+   740→                  <div key={key} className="flex items-center gap-2">
+   741→                    <span className="text-[10px] text-slate-400 w-20">{label}</span>
+   742→                    <div className="flex-1 h-1.5 bg-slate-700/50 rounded-full overflow-hidden">
+   743→                      <div
+   744→                        className="h-full rounded-full transition-all"
+   745→                        style={{
+   746→                          width: `${rank[key] || 0}%`,
+   747→                          backgroundColor: getScoreColor(rank[key] || 0),
+   748→                        }}
+   749→                      />
+   750→                    </div>
+   751→                    <span className="text-[10px] font-mono" style={{ color: getScoreColor(rank[key] || 0) }}>
+   752→                      {(rank[key] || 0).toFixed(0)}
+   753→                    </span>
+   754→                  </div>
+   755→                ))}
+   756→              </div>
+   757→            </motion.button>
+   758→          ))}
+   759→        </div>
+   760→      )}
+   761→    </div>
+   762→  );
+   763→}
+   764→
+   765→// ============================================================
+   766→// Stock Detail View
+   767→// ============================================================
+   768→function StockDetailView({
+   769→  detail,
+   770→  loading,
+   771→  symbol,
+   772→  onRefresh,
+   773→  onAnalyze,
+   774→  analyzing,
+   775→}: {
+   776→  detail: StockDetail | null;
+   777→  loading: boolean;
+   778→  symbol: string;
+   779→  onRefresh: () => void;
+   780→  onAnalyze: () => void;
+   781→  analyzing: boolean;
+   782→}) {
+   783→  if (loading && !detail) {
+   784→    return <div className="flex justify-center py-20"><LoadingSpinner size="lg" /></div>;
+   785→  }
+   786→
+   787→  if (!detail) {
+   788→    return (
+   789→      <div className="text-center py-20 text-slate-400">
+   790→        <Eye className="w-12 h-12 mx-auto mb-4 text-slate-600" />
+   791→        <p>Selecione uma ação para ver os detalhes.</p>
+   792→      </div>
+   793→    );
+   794→  }
+   795→
+   796→  const { stock, latestPrice, indicators, ranking, latestAnalysis, priceHistory } = detail;
+   797→  const isB3 = stock.market === 'B3';
+   798→  const currency = isB3 ? 'R$' : '$';
+   799→
+   800→  // Prepare price chart data
+   801→  const chartData = priceHistory.map(p => ({
+   802→    date: p.date ? new Date(p.date).toLocaleDateString('pt-BR', { month: 'short', day: 'numeric' }) : '',
+   803→    close: p.close,
+   804→    volume: p.volume,
+   805→    high: p.high,
+   806→    low: p.low,
+   807→  }));
+   808→
+   809→  // Prepare radar chart data
+   810→  const radarData = ranking ? [
+   811→    { dimension: 'Valor', score: ranking.valueScore },
+   812→    { dimension: 'Crescimento', score: ranking.growthScore },
+   813→    { dimension: 'Lucratividade', score: ranking.profitabilityScore },
+   814→    { dimension: 'Saúde', score: ranking.healthScore },
+   815→    { dimension: 'Dividendos', score: ranking.dividendScore },
+   816→  ] : [];
+   817→
+   818→  // Calculate price change
+   819→  const priceChange = priceHistory.length >= 2
+   820→    ? ((priceHistory[0]?.close || 0) - (priceHistory[priceHistory.length - 1]?.close || 0)) / (priceHistory[priceHistory.length - 1]?.close || 1) * 100
+   821→    : 0;
+   822→
+   823→  return (
+   824→    <div className="space-y-6">
+   825→      {/* Header */}
+   826→      <div className="bg-[#111827] border border-slate-700/50 rounded-2xl p-6">
+   827→        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+   828→          <div className="flex items-center gap-4">
+   829→            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex items-center justify-center">
+   830→              <span className="text-2xl font-bold text-emerald-400">{stock.symbol.substring(0, 2)}</span>
+   831→            </div>
+   832→            <div>
+   833→              <div className="flex items-center gap-2">
+   834→                <h2 className="text-2xl font-bold text-white">{stock.symbol.replace('.SA', '')}</h2>
+   835→                <span className="text-xs px-2 py-0.5 rounded-md bg-slate-700/50 text-slate-300">{stock.market}</span>
+   836→              </div>
+   837→              <p className="text-slate-400">{stock.name}</p>
+   838→              {stock.sector && <p className="text-xs text-slate-500">{stock.sector}</p>}
+   839→            </div>
+   840→          </div>
+   841→          <div className="flex items-center gap-4">
+   842→            {latestPrice && (
+   843→              <div className="text-right">
+   844→                <p className="text-3xl font-bold text-white font-mono">
+   845→                  {formatPrice(latestPrice.close, currency)}
+   846→                </p>
+   847→                <div className="flex items-center gap-1 justify-end">
+   848→                  {priceChange >= 0 ? (
+   849→                    <ArrowUpRight className="w-4 h-4 text-emerald-400" />
+   850→                  ) : (
+   851→                    <ArrowDownRight className="w-4 h-4 text-red-400" />
+   852→                  )}
+   853→                  <span className={`text-sm font-medium ${priceChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+   854→                    {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
+   855→                  </span>
+   856→                  <span className="text-xs text-slate-500">12m</span>
+   857→                </div>
+   858→              </div>
+   859→            )}
+   860→            {ranking && <ScoreBadge score={ranking.overallScore} grade={ranking.qualityGrade} size="lg" />}
+   861→          </div>
+   862→        </div>
+   863→      </div>
+   864→
+   865→      {/* Action Buttons */}
+   866→      <div className="flex gap-3">
+   867→        <button
+   868→          onClick={onAnalyze}
+   869→          disabled={analyzing}
+   870→          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-medium text-sm hover:opacity-90 transition-all disabled:opacity-50"
+   871→        >
+   872→          {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+   873→          {analyzing ? 'Analisando com IA...' : 'Analisar com IA'}
+   874→        </button>
+   875→        <button
+   876→          onClick={onRefresh}
+   877→          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-800/50 border border-slate-700/50 text-slate-300 font-medium text-sm hover:bg-slate-700/50 transition-all"
+   878→        >
+   879→          <RefreshCw className="w-4 h-4" />
+   880→          Atualizar Dados
+   881→        </button>
+   882→      </div>
+   883→
+   884→      {/* Charts Row */}
+   885→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+   886→        {/* Price Chart */}
+   887→        <div className="lg:col-span-2 bg-[#111827] border border-slate-700/50 rounded-2xl p-5">
+   888→          <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+   889→            <TrendingUp className="w-4 h-4 text-emerald-400" />
+   890→            Histórico de Preços
+   891→          </h3>
+   892→          <ResponsiveContainer width="100%" height={300}>
+   893→            <AreaChart data={chartData}>
+   894→              <defs>
+   895→                <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
+   896→                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+   897→                  <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+   898→                </linearGradient>
+   899→              </defs>
+   900→              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+   901→              <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 10 }} interval={20} />
+   902→              <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} domain={['auto', 'auto']} />
+   903→              <Tooltip
+   904→                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+   905→                labelStyle={{ color: '#f8fafc' }}
+   906→                formatter={(value: number) => [formatPrice(value, currency), 'Preço']}
+   907→              />
+   908→              <Area
+   909→                type="monotone"
+   910→                dataKey="close"
+   911→                stroke="#10b981"
+   912→                strokeWidth={2}
+   913→                fill="url(#priceGradient)"
+   914→                name="Preço"
+   915→              />
+   916→            </AreaChart>
+   917→          </ResponsiveContainer>
+   918→        </div>
+   919→
+   920→        {/* Radar Chart */}
+   921→        <div className="bg-[#111827] border border-slate-700/50 rounded-2xl p-5">
+   922→          <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+   923→            <Target className="w-4 h-4 text-indigo-400" />
+   924→            Perfil de Qualidade
+   925→          </h3>
+   926→          {radarData.length > 0 ? (
+   927→            <ResponsiveContainer width="100%" height={300}>
+   928→              <RadarChart data={radarData}>
+   929→                <PolarGrid stroke="#334155" />
+   930→                <PolarAngleAxis dataKey="dimension" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+   931→                <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 9 }} />
+   932→                <Radar
+   933→                  name="Score"
+   934→                  dataKey="score"
+   935→                  stroke="#10b981"
+   936→                  fill="#10b981"
+   937→                  fillOpacity={0.2}
+   938→                  strokeWidth={2}
+   939→                />
+   940→              </RadarChart>
+   941→            </ResponsiveContainer>
+   942→          ) : (
+   943→            <div className="flex items-center justify-center h-[300px] text-slate-500 text-sm">
+   944→              Sem dados de ranking
+   945→            </div>
+   946→          )}
+   947→        </div>
+   948→      </div>
+   949→
+   950→      {/* Analysis & Indicators */}
+   951→      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+   952→        {/* AI Analysis */}
+   953→        <div className="bg-[#111827] border border-slate-700/50 rounded-2xl p-5">
+   954→          <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+   955→            <Brain className="w-4 h-4 text-purple-400" />
+   956→            Análise {latestAnalysis?.aiModel === 'glm' ? 'IA' : 'Automática'}
+   957→          </h3>
+   958→          {latestAnalysis ? (
+   959→            <div className="space-y-4">
+   960→              {/* Recommendation */}
+   961→              <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50">
+   962→                <div className="w-12 h-12 rounded-xl flex items-center justify-center"
+   963→                  style={{ backgroundColor: (RECOMMENDATION_LABELS[latestAnalysis.recommendation]?.color || '#6b7280') + '20' }}>
+   964→                  <span className="text-lg font-bold" style={{ color: RECOMMENDATION_LABELS[latestAnalysis.recommendation]?.color || '#6b7280' }}>
+   965→                    {latestAnalysis.recommendation === 'strong_buy' ? '++' :
+   966→                     latestAnalysis.recommendation === 'buy' ? '+' :
+   967→                     latestAnalysis.recommendation === 'hold' ? '=' :
+   968→                     latestAnalysis.recommendation === 'sell' ? '-' : '--'}
+   969→                  </span>
+   970→                </div>
+   971→                <div>
+   972→                  <p className="text-sm font-semibold" style={{ color: RECOMMENDATION_LABELS[latestAnalysis.recommendation]?.color || '#6b7280' }}>
+   973→                    {RECOMMENDATION_LABELS[latestAnalysis.recommendation]?.label || latestAnalysis.recommendation}
+   974→                  </p>
+   975→                  <div className="flex items-center gap-2 mt-1">
+   976→                    <Shield className="w-3 h-3 text-slate-400" />
+   977→                    <span className="text-xs text-slate-400">
+   978→                      Risco: <span style={{ color: RISK_LABELS[latestAnalysis.riskLevel]?.color || '#6b7280' }}>
+   979→                        {RISK_LABELS[latestAnalysis.riskLevel]?.label || latestAnalysis.riskLevel}
+   980→                      </span>
+   981→                    </span>
+   982→                  </div>
+   983→                </div>
+   984→              </div>
+   985→
+   986→              {/* Summary */}
+   987→              <p className="text-sm text-slate-300 leading-relaxed">{latestAnalysis.summary}</p>
+   988→
+   989→              {/* SWOT */}
+   990→              <div className="grid grid-cols-2 gap-3">
+   991→                <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+   992→                  <p className="text-xs font-semibold text-emerald-400 mb-2 flex items-center gap-1">
+   993→                    <TrendingUp className="w-3 h-3" /> Pontos Fortes
+   994→                  </p>
+   995→                  <ul className="space-y-1">
+   996→                    {safeArray(latestAnalysis.strengths).map((s, i) => (
+   997→                      <li key={i} className="text-xs text-slate-400 flex items-start gap-1">
+   998→                        <span className="text-emerald-500 mt-0.5">•</span> {s}
+   999→                      </li>
+  1000→                    ))}
+  1001→                  </ul>
+  1002→                </div>
+  1003→                <div className="p-3 rounded-xl bg-red-500/5 border border-red-500/10">
+  1004→                  <p className="text-xs font-semibold text-red-400 mb-2 flex items-center gap-1">
+  1005→                    <TrendingDown className="w-3 h-3" /> Pontos Fracos
+  1006→                  </p>
+  1007→                  <ul className="space-y-1">
+  1008→                    {safeArray(latestAnalysis.weaknesses).map((w, i) => (
+  1009→                      <li key={i} className="text-xs text-slate-400 flex items-start gap-1">
+  1010→                        <span className="text-red-500 mt-0.5">•</span> {w}
+  1011→                      </li>
+  1012→                    ))}
+  1013→                  </ul>
+  1014→                </div>
+  1015→                <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/10">
+  1016→                  <p className="text-xs font-semibold text-blue-400 mb-2 flex items-center gap-1">
+  1017→                    <Sparkles className="w-3 h-3" /> Oportunidades
+  1018→                  </p>
+  1019→                  <ul className="space-y-1">
+  1020→                    {safeArray(latestAnalysis.opportunities).map((o, i) => (
+  1021→                      <li key={i} className="text-xs text-slate-400 flex items-start gap-1">
+  1022→                        <span className="text-blue-500 mt-0.5">•</span> {o}
+  1023→                      </li>
+  1024→                    ))}
+  1025→                  </ul>
+  1026→                </div>
+  1027→                <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/10">
+  1028→                  <p className="text-xs font-semibold text-amber-400 mb-2 flex items-center gap-1">
+  1029→                    <AlertTriangle className="w-3 h-3" /> Ameaças
+  1030→                  </p>
+  1031→                  <ul className="space-y-1">
+  1032→                    {safeArray(latestAnalysis.threats).map((t, i) => (
+  1033→                      <li key={i} className="text-xs text-slate-400 flex items-start gap-1">
+  1034→                        <span className="text-amber-500 mt-0.5">•</span> {t}
+  1035→                      </li>
+  1036→                    ))}
+  1037→                  </ul>
+  1038→                </div>
+  1039→              </div>
+  1040→
+  1041→              {/* Justification */}
+  1042→              <div className="p-3 rounded-xl bg-slate-800/30 border border-slate-700/30">
+  1043→                <p className="text-xs font-semibold text-slate-400 mb-1">Justificativa</p>
+  1044→                <p className="text-xs text-slate-300 leading-relaxed">{latestAnalysis.justification}</p>
+  1045→              </div>
+  1046→            </div>
+  1047→          ) : (
+  1048→            <div className="text-center py-8">
+  1049→              <Brain className="w-10 h-10 mx-auto mb-3 text-slate-600" />
+  1050→              <p className="text-slate-400 text-sm mb-3">Nenhuma análise disponível ainda.</p>
+  1051→              <button
+  1052→                onClick={onAnalyze}
+  1053→                className="px-4 py-2 rounded-xl bg-emerald-500/10 text-emerald-400 text-sm font-medium hover:bg-emerald-500/20 transition-all"
+  1054→              >
+  1055→                Gerar Análise com IA
+  1056→              </button>
+  1057→            </div>
+  1058→          )}
+  1059→        </div>
+  1060→
+  1061→        {/* Financial Indicators */}
+  1062→        <div className="bg-[#111827] border border-slate-700/50 rounded-2xl p-5">
+  1063→          <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+  1064→            <BarChart3 className="w-4 h-4 text-amber-400" />
+  1065→            Indicadores Financeiros
+  1066→          </h3>
+  1067→          {indicators ? (
+  1068→            <div className="space-y-3">
+  1069→              {/* Valuation */}
+  1070→              <IndicatorGroup title="Avaliação" items={[
+  1071→                { label: 'P/L', value: indicators.peRatio, format: 'number' },
+  1072→                { label: 'P/VPA', value: indicators.pbRatio, format: 'number' },
+  1073→                { label: 'P/Vendas', value: indicators.priceToSales, format: 'number' },
+  1074→                { label: 'EV/EBITDA', value: indicators.evToEbitda, format: 'number' },
+  1075→              ]} />
+  1076→
+  1077→              {/* Profitability */}
+  1078→              <IndicatorGroup title="Lucratividade" items={[
+  1079→                { label: 'ROE', value: indicators.roe, format: 'percent' },
+  1080→                { label: 'ROA', value: indicators.roa, format: 'percent' },
+  1081→                { label: 'Margem Bruta', value: indicators.grossMargin, format: 'percent' },
+  1082→                { label: 'Margem Líquida', value: indicators.netMargin, format: 'percent' },
+  1083→                { label: 'Margem Operacional', value: indicators.operatingMargin, format: 'percent' },
+  1084→              ]} />
+  1085→
+  1086→              {/* Growth */}
+  1087→              <IndicatorGroup title="Crescimento" items={[
+  1088→                { label: 'Receita', value: indicators.revenueGrowth, format: 'percent' },
+  1089→                { label: 'Lucro', value: indicators.earningsGrowth, format: 'percent' },
+  1090→              ]} />
+  1091→
+  1092→              {/* Financial Health */}
+  1093→              <IndicatorGroup title="Saúde Financeira" items={[
+  1094→                { label: 'Dívida/Patrimônio', value: indicators.debtToEquity, format: 'number' },
+  1095→                { label: 'Liquidez Corrente', value: indicators.currentRatio, format: 'number' },
+  1096→                { label: 'Beta', value: indicators.beta, format: 'number' },
+  1097→              ]} />
+  1098→
+  1099→              {/* Dividends */}
+  1100→              <IndicatorGroup title="Dividendos" items={[
+  1101→                { label: 'Dividend Yield', value: indicators.dividendYield, format: 'percent' },
+  1102→                { label: 'Payout Ratio', value: indicators.payoutRatio, format: 'percent' },
+  1103→              ]} />
+  1104→            </div>
+  1105→          ) : (
+  1106→            <div className="text-center py-8 text-slate-500 text-sm">
+  1107→              Sem indicadores disponíveis
+  1108→            </div>
+  1109→          )}
+  1110→        </div>
+  1111→      </div>
+  1112→    </div>
+  1113→  );
+  1114→}
+  1115→
+  1116→// ============================================================
+  1117→// Indicator Group
+  1118→// ============================================================
+  1119→function IndicatorGroup({ title, items }: { title: string; items: { label: string; value: number | null; format: 'percent' | 'number' }[] }) {
+  1120→  return (
+  1121→    <div>
+  1122→      <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">{title}</p>
+  1123→      <div className="grid grid-cols-2 gap-2">
+  1124→        {items.map(item => (
+  1125→          <div key={item.label} className="flex items-center justify-between p-2 rounded-lg bg-slate-800/30">
+  1126→            <span className="text-xs text-slate-400">{item.label}</span>
+  1127→            <span className="text-xs font-mono font-medium text-white">
+  1128→              {item.value !== null && item.value !== undefined
+  1129→                ? item.format === 'percent'
+  1130→                  ? formatPercent(item.value)
+  1131→                  : item.value.toFixed(2)
+  1132→                : 'N/A'}
+  1133→            </span>
+  1134→          </div>
+  1135→        ))}
+  1136→      </div>
+  1137→    </div>
+  1138→  );
+  1139→}
+  1140→

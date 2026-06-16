@@ -1,0 +1,133 @@
+// Stock Analysis App - Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Stock {
+  id            String   @id @default(cuid())
+  symbol        String   @unique
+  name          String
+  sector        String?
+  industry      String?
+  market        String   @default("B3")
+  description   String?
+  logoUrl       String?
+  website       String?
+  employees     Int?
+  marketCap     Float?
+  isActive      Boolean  @default(true)
+  lastUpdate    DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  prices        StockPrice[]
+  indicators    FinancialIndicator[]
+  rankings      StockRanking[]
+  analyses      StockAnalysis[]
+}
+
+model StockPrice {
+  id        String   @id @default(cuid())
+  stockId   String
+  date      DateTime
+  open      Float
+  high      Float
+  low       Float
+  close     Float
+  volume    Float
+  adjClose  Float?
+  createdAt DateTime @default(now())
+
+  stock     Stock    @relation(fields: [stockId], references: [id], onDelete: Cascade)
+
+  @@unique([stockId, date])
+  @@index([stockId, date])
+}
+
+model FinancialIndicator {
+  id              String   @id @default(cuid())
+  stockId         String
+  date            DateTime @default(now())
+  peRatio         Float?
+  pbRatio         Float?
+  roe             Float?
+  roa             Float?
+  roic            Float?
+  debtToEquity    Float?
+  currentRatio    Float?
+  quickRatio      Float?
+  grossMargin     Float?
+  operatingMargin Float?
+  netMargin       Float?
+  dividendYield   Float?
+  payoutRatio     Float?
+  eps             Float?
+  revenueGrowth   Float?
+  earningsGrowth  Float?
+  freeCashFlow    Float?
+  priceToSales    Float?
+  evToEbitda      Float?
+  beta            Float?
+  createdAt       DateTime @default(now())
+
+  stock           Stock    @relation(fields: [stockId], references: [id], onDelete: Cascade)
+
+  @@index([stockId])
+}
+
+model StockRanking {
+  id              String   @id @default(cuid())
+  stockId         String
+  overallScore    Float
+  valueScore      Float
+  growthScore     Float
+  profitabilityScore Float
+  healthScore     Float
+  dividendScore   Float
+  qualityGrade    String   // A+, A, A-, B+, B, B-, C+, C, C-, D
+  rankPosition    Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  stock           Stock    @relation(fields: [stockId], references: [id], onDelete: Cascade)
+
+  @@index([overallScore])
+  @@index([stockId])
+}
+
+model StockAnalysis {
+  id              String   @id @default(cuid())
+  stockId         String
+  analysisType    String   // "daily", "weekly", "monthly", "on_demand"
+  summary         String
+  strengths       String   // JSON array
+  weaknesses      String   // JSON array
+  opportunities   String   // JSON array
+  threats         String   // JSON array
+  recommendation  String   // "strong_buy", "buy", "hold", "sell", "strong_sell"
+  targetPrice     Float?
+  riskLevel       String   // "low", "medium", "high", "very_high"
+  justification   String
+  aiModel         String   @default("glm")
+  createdAt       DateTime @default(now())
+
+  stock           Stock    @relation(fields: [stockId], references: [id], onDelete: Cascade)
+
+  @@index([stockId, createdAt])
+}
+
+model UpdateLog {
+  id          String   @id @default(cuid())
+  updateType  String   // "prices", "indicators", "rankings", "analysis", "full"
+  status      String   // "running", "completed", "failed"
+  stocksProcessed Int   @default(0)
+  errors      String?
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+}
