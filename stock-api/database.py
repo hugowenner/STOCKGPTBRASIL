@@ -8,7 +8,11 @@ import aiosqlite
 import os
 from typing import List, Dict, Any
 
-DB_PATH = os.environ.get("DB_PATH", "/home/z/my-project/db/custom.db")
+# Default: resolve db/ relative to this file (stock-api/../db/custom.db)
+_DEFAULT_DB = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'db', 'custom.db')
+)
+DB_PATH = os.environ.get("DB_PATH", _DEFAULT_DB)
 
 
 async def get_db() -> aiosqlite.Connection:
