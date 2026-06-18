@@ -92,6 +92,7 @@ model StockRanking {
   dividendScore   Float
   qualityGrade    String   // A+, A, A-, B+, B, B-, C+, C, C-, D
   rankPosition    Int?
+  scoreVersion    String   @default("1.0") // Versão da fórmula que gerou este score
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

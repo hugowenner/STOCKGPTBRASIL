@@ -6,6 +6,10 @@ from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
+# Versão da fórmula de scoring. Incrementar sempre que os pesos ou thresholds mudarem.
+# Permite rastrear qual fórmula gerou cada registro em StockRanking.
+SCORE_VERSION = "1.0"
+
 
 def call_ai(prompt: str, system: str = "Você é um analista financeiro especialista em análise de ações.") -> str:
     """Call the z-ai-web-dev-sdk chat API via CLI."""
@@ -288,9 +292,12 @@ def calculate_ranking_scores(indicators: Dict[str, Any], price_data: List[Dict] 
         1
     )
 
-    # Round all scores
+    # Round all numeric scores
     for key in scores:
         scores[key] = round(scores[key], 1)
+
+    # Adicionar versão da fórmula (string, não entra no arredondamento acima)
+    scores["scoreVersion"] = SCORE_VERSION
 
     return scores
 

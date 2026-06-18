@@ -1,7 +1,15 @@
-/**
- * Stock Analysis App - Complete single-page application
- * Features: Dashboard, Rankings, Stock Detail, AI Analysis
- */
+import { redirect } from 'next/navigation';
+
+export default function RootPage() {
+  redirect('/dashboard');
+}
+
+// ============================================================
+// Legacy SPA — preserved below for reference during migration.
+// This code is no longer rendered; routing is handled by (app)/*.
+// ============================================================
+// @ts-nocheck
+/* eslint-disable */
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
